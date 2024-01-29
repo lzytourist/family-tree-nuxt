@@ -6,12 +6,13 @@ const props = defineProps({
   //@ts-ignore
   fatherId: {
     type: [Number, null],
-    default: null,
+    default: undefined,
   },
   motherId: {
     type: [Number, null],
-    default: null,
+    default: undefined,
   },
+  closeModal: Function
 });
 
 const schema = z.object({
@@ -21,12 +22,13 @@ const schema = z.object({
   nationality: z.string().optional(),
   father_id: z.number().or(z.null()).optional(),
   mother_id: z.number().or(z.null()).optional(),
+  dob: z.any().optional(),
 });
 
 type Schema = z.output<typeof schema>;
 
 const state = reactive({
-  name: 'Monowar Hossain Khan',
+  name: undefined,
   gender: 'male',
   dob: undefined,
   nationality: 'Bangladeshi',
@@ -36,6 +38,7 @@ const state = reactive({
 });
 
 state.father_id = props.fatherId;
+state.mother_id = props.motherId;
 
 const genders = [
   {
@@ -51,8 +54,9 @@ const genders = [
 const date = ref(new Date());
 
 const label = computed(() => date.value.toLocaleDateString('en-us', {
+      weekday: 'long',
       year: 'numeric',
-      month: 'numeric',
+      month: 'long',
       day: 'numeric'
     })
 );
@@ -60,15 +64,19 @@ const label = computed(() => date.value.toLocaleDateString('en-us', {
 const cookie = useCookie('AUTH-TOKEN');
 
 const loading = ref(false);
-const fetchParent = async (q: string, parent_type: string) => {
-  loading.value = true;
-  const {data, pending, status} = await useFetch(`http://127.0.0.1:8000/api/people?gender=${parent_type}&search=${q}`, {
+const selectLoading = ref({
+  father: false,
+  mother: false
+});
+const form = ref();
+
+const fetchParent = async (q: string, gender: string) => {
+  const {data, pending, status} = await useFetch(`http://127.0.0.1:8000/api/people?gender=${gender}&search=${q}`, {
     watch: false,
     headers: {
       Authorization: `Token ${cookie.value}`
     }
   });
-  loading.value = pending.value;
 
   if (status.value === 'success') {
     const people = data.value as People;
@@ -78,17 +86,86 @@ const fetchParent = async (q: string, parent_type: string) => {
   return [];
 };
 
-const fetchFather = async (q: string) => fetchParent(q, 'male');
-const fetchMother = async (q: string) => fetchParent(q, 'female');
+const fetchFather = async (q: string) => {
+  selectLoading.value.father = true;
+  const res = await fetchParent(q, 'male');
+  selectLoading.value.father = false;
+  return res;
+};
 
-const handleSubmit = async (event: FormSubmitEvent<Schema>) => {
-  console.log(event.data);
+const fetchMother = async (q: string) => {
+  selectLoading.value.mother = true;
+  const res = await fetchParent(q, 'female');
+  selectLoading.value.mother = false;
+  return res;
+};
+
+const formatDate = (date: string) => {
+  let d = new Date(date),
+      month = '' + (d.getMonth() + 1),
+      day = '' + d.getDate(),
+      year = d.getFullYear();
+
+  if (month.length < 2)
+    month = '0' + month;
+  if (day.length < 2)
+    day = '0' + day;
+
+  return [year, month, day].join('-');
+}
+
+const handleSubmit = async (event: FormSubmitEvent<Schema>, close: boolean = true) => {
+  loading.value = true;
+
+  const {data, error, pending, status} = await useFetch(`http://127.0.0.1:8000/api/people`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Token ${cookie.value}`
+    },
+    body: event.data,
+    watch: false
+  });
+
+  loading.value = pending.value;
+
+  const toast = useToast();
+
+  if (status.value === 'success') {
+    toast.add({
+      title: 'Person added successfully!',
+    });
+
+    if (close) {
+      props.closeModal();
+    }
+  } else {
+    if (error.value?.statusCode === 400) {
+      let errors = []
+      for (const [key, value] of Object.entries(error.value.data)) {
+        const messages = value as Array<string>
+        errors.push({
+          path: key,
+          message: messages.at(0)
+        });
+      }
+      form.value.setErrors(errors);
+    } else {
+      toast.add({
+        title: 'Error!',
+        description: 'Something went wrong.'
+      });
+    }
+  }
+};
+
+const addAnother = () => {
+  form.value.submit();
 };
 
 </script>
 
 <template>
-  <UForm :state="state" :schema="schema" @submit="handleSubmit">
+  <UForm ref="form" :state="state" :schema="schema" @submit="handleSubmit">
     <UFormGroup label="Full name" name="name" class="my-2">
       <UInput type="text" name="name" id="name" v-model="state.name"/>
     </UFormGroup>
@@ -97,34 +174,41 @@ const handleSubmit = async (event: FormSubmitEvent<Schema>) => {
                    option-attribute="value"/>
     </UFormGroup>
     <UFormGroup label="Date of birth" name="dob" class="my-2">
-      <UPopover :popper="{ placement: 'bottom-start' }">
-        <UInput v-model="state.dob" :model-value="label" class="w-full"/>
-        <template #panel="{ close }">
-          <DatePicker v-model="date" @close="close"/>
-        </template>
-      </UPopover>
+      <UInput type="date" v-model="state.dob"/>
     </UFormGroup>
     <UFormGroup label="Father" name="father_id" class="my-2" v-if="!fatherId">
       <USelectMenu
           v-model="state.father_id"
-          :loading="loading"
+          :loading="selectLoading.father"
           :searchable="fetchFather"
-          placeholder="Search for a father..."
+          placeholder="Search for father"
           option-attribute="name"
+          value-attribute="id"
           trailing
           by="id"
-      />
+          :search-attributes="['name']"
+      >
+        <template #option="{ option: person }">
+          <span class="truncate">{{ person.name }}</span>
+        </template>
+      </USelectMenu>
     </UFormGroup>
     <UFormGroup label="Mother" name="mother_id" class="my-2" v-if="!motherId">
       <USelectMenu
           v-model="state.mother_id"
-          :loading="loading"
+          :loading="selectLoading.mother"
           :searchable="fetchMother"
-          placeholder="Search for a father..."
+          placeholder="Search for mother"
           option-attribute="name"
+          value-attribute="id"
           trailing
           by="id"
-      />
+          :search-attributes="['name']"
+      >
+        <template #option="{ option: person }">
+          <span class="truncate">{{ person.name }}</span>
+        </template>
+      </USelectMenu>
     </UFormGroup>
     <UFormGroup label="Nationality" name="nationality" class="my-2">
       <UInput v-model="state.nationality"/>
@@ -132,7 +216,7 @@ const handleSubmit = async (event: FormSubmitEvent<Schema>) => {
     <UFormGroup label="Child no" name="child_no" class="my-2">
       <UInput v-model="state.child_no" type="number"/>
     </UFormGroup>
-    <UButton block variant="outline" :loading="loading" type="submit" label="Submit" />
+    <UButton block variant="outline" :loading="loading" type="submit" label="Submit"/>
   </UForm>
 </template>
 

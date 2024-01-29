@@ -6,11 +6,7 @@ import {useAuthStore} from "~/stores/authStore";
 useSeoMeta({
   title: 'Sign In',
   description: 'Sign in into your family tree account.'
-})
-
-type Token = {
-  auth_token: string
-}
+});
 
 const schema = z.object({
   username: z.string().email('Invalid email'),

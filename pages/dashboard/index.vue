@@ -21,6 +21,10 @@ defineShortcuts({
   }
 });
 
+const closeModal = () => {
+  isOpen.value = false;
+};
+
 </script>
 
 <template>
@@ -48,7 +52,7 @@ defineShortcuts({
           </div>
         </template>
 
-        <AddPerson />
+        <AddPerson :close-modal="closeModal" />
       </UCard>
     </UModal>
   </UContainer>
